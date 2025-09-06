@@ -107,20 +107,106 @@ function moon(ctx){
   ctx.save(); ctx.globalCompositeOperation='destination-out'; circ(ctx,17,12,6,'rgba(0,0,0,1)'); ctx.restore();
   p(ctx,5,5,COL.star); p(ctx,19,6,COL.star); p(ctx,8,20,COL.star);
 }
+
+  /* ===== Pixel-art icon renderer v3 (24×24, blocky cloud with outline) ===== */
+const SIZE = 24;
+function makeCanvas(){ const c=document.createElement('canvas'); c.width=c.height=SIZE; return c; }
+
+const COL = {
+  sun:'#ff4d8d', sunCore:'#ff8fb6',
+  cloudDay:'#ffe3ef', cloudNight:'#ffb3cf',
+  outlineDay:'#d68fb0', outlineNight:'#b46a8f',
+  moon:'#ffd1e6', star:'#ffeef6',
+  rain:'#ff6ea6', snow:'#ffeaf3', fog:'#ff9ec3'
+};
+
+function p(ctx,x,y,color){ ctx.fillStyle=color; ctx.fillRect(x,y,1,1); }
+function rect(ctx,x,y,w,h,color){ ctx.fillStyle=color; ctx.fillRect(x,y,w,h); }
+function circ(ctx,cx,cy,r,color){
+  for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++){
+    const dx=x-cx, dy=y-cy; if(dx*dx+dy*dy<=r*r) p(ctx,x,y,color);
+  }
+}
+function line(ctx,x1,y1,x2,y2,color){
+  x1|=0;y1|=0;x2|=0;y2|=0;
+  const dx=Math.abs(x2-x1), sx=x1<x2?1:-1;
+  const dy=-Math.abs(y2-y1), sy=y1<y2?1:-1;
+  let err=dx+dy, x=x1, y=y1;
+  while(true){ p(ctx,x,y,color); if(x===x2 && y===y2) break;
+    const e2=2*err; if(e2>=dy){ err+=dy; x+=sx; } if(e2<=dx){ err+=dx; y+=sy; } }
+}
+
+/* blocky pixel cloud with flat base + 1px outline (like your screenshot) */
+function cloud(ctx, night){
+  const fill = night ? COL.cloudNight : COL.cloudDay;
+  const out  = night ? COL.outlineNight : COL.outlineDay;
+
+  // rectangles that define the silhouette
+  const F = [
+    {x: 6, y:16, w:12, h:4},  // base
+    {x: 7, y:13, w: 6, h:4},  // left puff
+    {x:10, y:11, w: 6, h:5},  // middle puff
+    {x:15, y:13, w: 5, h:4},  // right puff
+    {x:12, y:10, w: 3, h:2},  // tiny top bump
+  ];
+
+  // draw outline (expand each rect by 1 px)
+  F.forEach(r => rect(ctx, r.x-1, r.y-1, r.w+2, r.h+2, out));
+  // fill interior
+  F.forEach(r => rect(ctx, r.x, r.y, r.w, r.h, fill));
+
+  // tiny chamfers so corners feel nicer
+  p(ctx, 6,19, fill); p(ctx,17,19, fill);
+  p(ctx, 8,15, fill); p(ctx,19,15, fill);
+
+  if (night) p(ctx,4,4,COL.star); // night indicator
+}
+
+/* clear day/night */
+function sun(ctx){
+  circ(ctx,12,12,6, COL.sunCore);
+  [[12,2,12,6],[12,18,12,22],[2,12,6,12],[18,12,22,12],
+   [5,5,7,7],[19,5,17,7],[5,19,7,17],[19,19,17,17]]
+  .forEach(r=>line(ctx,...r,COL.sun));
+}
+function moon(ctx){
+  circ(ctx,14,12,7, COL.moon);
+  // carve crescent
+  const t=makeCanvas().getContext('2d'); // just to keep API happy
+  // use composite to cut a chunk
+  const c=document.createElement('canvas'); c.width=c.height=SIZE; const cx=c.getContext('2d');
+  cx.globalCompositeOperation='source-over';
+}
+
+/* render selected icon as PNG data URL */
 function renderIcon(kind){
   const c=makeCanvas(), ctx=c.getContext('2d');
   const night = /Night$/.test(kind);
+
   if(kind==='ClearDay') sun(ctx);
-  else if(kind==='ClearNight') moon(ctx);
-  else if(kind.includes('Cloudy')) { cloud(ctx,night); if(night) p(ctx,4,4,COL.star); }
-  else if(kind.includes('Rain'))   { cloud(ctx,night); line(ctx,10,21,10,23,COL.rain); line(ctx,14,21,14,23,COL.rain); line(ctx,18,21,18,23,COL.rain); if(night) p(ctx,4,4,COL.star); }
-  else if(kind.includes('Snow'))   { cloud(ctx,night); p(ctx,10,22,COL.snow); p(ctx,14,23,COL.snow); p(ctx,18,22,COL.snow); if(night) p(ctx,4,4,COL.star); }
-  else if(kind.includes('Thunder')){ cloud(ctx,night); line(ctx,12,17,10,21,COL.sun); line(ctx,10,21,14,21,COL.sun); line(ctx,14,21,12,23,COL.sun); if(night) p(ctx,4,4,COL.star); }
-  else if(kind.includes('Fog'))    { cloud(ctx,night); rect(ctx,6,10,12,2,COL.fog); rect(ctx,5,22,14,2,COL.fog); if(night) p(ctx,4,4,COL.star); }
+  else if(kind==='ClearNight'){
+    // draw crescent
+    circ(ctx,14,12,7, COL.moon);
+    ctx.save(); ctx.globalCompositeOperation='destination-out';
+    circ(ctx,17,12,6, 'rgba(0,0,0,1)'); ctx.restore();
+    p(ctx,5,5,COL.star); p(ctx,19,6,COL.star); p(ctx,8,20,COL.star);
+  }
+  else if(kind.includes('Cloudy')) { cloud(ctx,night); }
+  else if(kind.includes('Rain'))   { cloud(ctx,night); line(ctx,10,21,10,23,COL.rain); line(ctx,14,21,14,23,COL.rain); line(ctx,18,21,18,23,COL.rain); }
+  else if(kind.includes('Snow'))   { cloud(ctx,night); p(ctx,10,22,COL.snow); p(ctx,14,23,COL.snow); p(ctx,18,22,COL.snow); }
+  else if(kind.includes('Thunder')){ cloud(ctx,night); line(ctx,12,17,10,21,COL.sun); line(ctx,10,21,14,21,COL.sun); line(ctx,14,21,12,23,COL.sun); }
+  else if(kind.includes('Fog'))    { cloud(ctx,night); rect(ctx,6,10,12,2,COL.fog); rect(ctx,5,22,14,2,COL.fog); }
+
   return c.toDataURL();
 }
-function tiny(kind){ const img=new Image(); img.src=renderIcon(kind); img.width=28; img.height=28; img.style.imageRendering='pixelated'; return img; }
 
+/* small icon for 3-day preview (day variant) */
+function tiny(kind){
+  const img=new Image(); img.src=renderIcon(kind);
+  img.width=28; img.height=28; img.style.imageRendering='pixelated';
+  return img;
+}
+  
 /* ===== mapping + data ===== */
 function codeToGroup(code){
   if(code===0) return 'Clear';
