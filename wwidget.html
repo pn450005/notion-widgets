@@ -1,0 +1,178 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pink Pixel Weather</title>
+<!-- version: pix24-v2 -->
+<style>
+  :root{
+    --bg:#1a1325; --card:#221127; --fg:#ffe7f3; --muted:#f0a6c1; --accent:#ff4d8d; --chip:#2a1630;
+  }
+  body.sunrise{
+    --bg:#fff0f6; --card:#ffe3ef; --fg:#5a1037; --muted:#b85a7e; --accent:#ff4d8d; --chip:#ffd9e7;
+  }
+  html,body{height:100%;margin:0}
+  body{display:grid;place-items:center;background:var(--bg);color:var(--fg);
+       font:600 16px/1.4 ui-sans-serif,system-ui,Segoe UI,Arial}
+  .widget{background:var(--card);border-radius:16px;box-shadow:0 10px 28px rgba(0,0,0,.35);
+          padding:18px 20px;min-width:290px;max-width:420px;width:92%}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  .date{font-weight:800}
+  .loc{color:var(--muted);font-weight:700}
+  .now{display:flex;align-items:center;gap:14px;margin:12px 0 6px}
+  .icon img{width:72px;height:72px;image-rendering:pixelated}
+  .temp{font-size:44px;letter-spacing:.02em}
+  .desc{color:var(--muted);margin-top:2px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+  .day{background:var(--chip);border-radius:12px;padding:10px;text-align:center}
+  .hi{font-size:18px} .lo{color:var(--muted);font-size:12px}
+  .tiny img{width:28px;height:28px;image-rendering:pixelated}
+  .toggle{position:relative;display:inline-block;width:44px;height:24px}
+  .toggle input{display:none}
+  .slider{position:absolute;cursor:pointer;inset:0;background:#3a2746;border-radius:999px;transition:.2s}
+  .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:var(--accent);
+    border-radius:50%;transition:.2s}
+  input:checked + .slider{background:#ffd7e6}
+  input:checked + .slider:before{transform:translateX(20px);background:#ff4d8d}
+</style>
+
+<div class="widget">
+  <div class="top">
+    <div>
+      <div class="date" id="date">—</div>
+      <div class="loc" id="loc">Loading…</div>
+    </div>
+    <label class="toggle" title="Toggle light/dark">
+      <input id="theme" type="checkbox"><span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="now">
+    <div class="icon" id="bigIcon" aria-hidden="true"></div>
+    <div>
+      <div class="temp" id="temp">--°</div>
+      <div class="desc" id="desc">—</div>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const qs=new URLSearchParams(location.search);
+const city=qs.get('city'); const lat=qs.get('lat'); const lon=qs.get('lon');
+if((qs.get('theme')||'').toLowerCase()==='sunrise') document.body.classList.add('sunrise');
+date.textContent = new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+const theme=document.getElementById('theme'); theme.checked=document.body.classList.contains('sunrise');
+theme.addEventListener('change',()=>document.body.classList.toggle('sunrise'));
+
+/* ===== Pixel-art icon renderer v2 (24x24, outlined clouds) ===== */
+const SIZE = 24;
+function makeCanvas(){ const c=document.createElement('canvas'); c.width=c.height=SIZE; return c; }
+const COL = {
+  sun:'#ff4d8d', sunCore:'#ff8fb6',
+  cloudDay:'#ffe3ef', cloudNight:'#ffb3cf',
+  outlineDay:'#d68fb0', outlineNight:'#b46a8f',
+  moon:'#ffd1e6', star:'#ffeef6',
+  rain:'#ff6ea6', snow:'#ffeaf3', fog:'#ff9ec3'
+};
+function p(ctx,x,y,color){ ctx.fillStyle=color; ctx.fillRect(x,y,1,1); }
+function rect(ctx,x,y,w,h,color){ ctx.fillStyle=color; ctx.fillRect(x,y,w,h); }
+function circ(ctx,cx,cy,r,color){
+  for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++){
+    const dx=x-cx, dy=y-cy; if(dx*dx+dy*dy<=r*r) p(ctx,x,y,color);
+  }
+}
+function line(ctx,x1,y1,x2,y2,color){
+  x1|=0;y1|=0;x2|=0;y2|=0;
+  const dx=Math.abs(x2-x1), sx=x1<x2?1:-1;
+  const dy=-Math.abs(y2-y1), sy=y1<y2?1:-1;
+  let err=dx+dy, x=x1, y=y1;
+  while(true){ p(ctx,x,y,color); if(x===x2 && y===y2) break;
+    const e2=2*err; if(e2>=dy){ err+=dy; x+=sx; } if(e2<=dx){ err+=dx; y+=sy; } }
+}
+function cloud(ctx,night){
+  const fill = night ? COL.cloudNight : COL.cloudDay;
+  const out  = night ? COL.outlineNight : COL.outlineDay;
+  circ(ctx, 9,12, 7, out);  circ(ctx,14,11, 8, out);  circ(ctx,18,13, 6, out);  rect(ctx, 7,16,14,6, out);
+  circ(ctx, 9,12, 6, fill); circ(ctx,14,11, 7, fill); circ(ctx,18,13, 5, fill); rect(ctx, 8,17,12,4, fill);
+}
+function sun(ctx){
+  circ(ctx,12,12,6, COL.sunCore);
+  [[12,2,12,6],[12,18,12,22],[2,12,6,12],[18,12,22,12],
+   [5,5,7,7],[19,5,17,7],[5,19,7,17],[19,19,17,17]]
+  .forEach(r=>line(ctx,...r,COL.sun));
+}
+function moon(ctx){
+  circ(ctx,14,12,7, COL.moon);
+  ctx.save(); ctx.globalCompositeOperation='destination-out'; circ(ctx,17,12,6,'rgba(0,0,0,1)'); ctx.restore();
+  p(ctx,5,5,COL.star); p(ctx,19,6,COL.star); p(ctx,8,20,COL.star);
+}
+function renderIcon(kind){
+  const c=makeCanvas(), ctx=c.getContext('2d');
+  const night = /Night$/.test(kind);
+  if(kind==='ClearDay') sun(ctx);
+  else if(kind==='ClearNight') moon(ctx);
+  else if(kind.includes('Cloudy')) { cloud(ctx,night); if(night) p(ctx,4,4,COL.star); }
+  else if(kind.includes('Rain'))   { cloud(ctx,night); line(ctx,10,21,10,23,COL.rain); line(ctx,14,21,14,23,COL.rain); line(ctx,18,21,18,23,COL.rain); if(night) p(ctx,4,4,COL.star); }
+  else if(kind.includes('Snow'))   { cloud(ctx,night); p(ctx,10,22,COL.snow); p(ctx,14,23,COL.snow); p(ctx,18,22,COL.snow); if(night) p(ctx,4,4,COL.star); }
+  else if(kind.includes('Thunder')){ cloud(ctx,night); line(ctx,12,17,10,21,COL.sun); line(ctx,10,21,14,21,COL.sun); line(ctx,14,21,12,23,COL.sun); if(night) p(ctx,4,4,COL.star); }
+  else if(kind.includes('Fog'))    { cloud(ctx,night); rect(ctx,6,10,12,2,COL.fog); rect(ctx,5,22,14,2,COL.fog); if(night) p(ctx,4,4,COL.star); }
+  return c.toDataURL();
+}
+function tiny(kind){ const img=new Image(); img.src=renderIcon(kind); img.width=28; img.height=28; img.style.imageRendering='pixelated'; return img; }
+
+/* ===== mapping + data ===== */
+function codeToGroup(code){
+  if(code===0) return 'Clear';
+  if([1,2,3].includes(code)) return 'Cloudy';
+  if([45,48].includes(code)) return 'Fog';
+  if((code>=51 && code<=67) || (code>=80 && code<=82)) return 'Rain';
+  if((code>=71 && code<=77) || (code>=85 && code<=86)) return 'Snow';
+  if(code===95 || code===96 || code===99) return 'Thunder';
+  return 'Cloudy';
+}
+async function geocode(name){
+  const url=`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`;
+  const r=await fetch(url); const j=await r.json();
+  if(!j.results || !j.results[0]) throw new Error('Place not found');
+  const g=j.results[0]; return {lat:g.latitude, lon:g.longitude, label:`${g.name}${g.admin1?', '+g.admin1:''}`};
+}
+async function load(){
+  let where={lat:null,lon:null,label:''};
+  if(lat && lon){ where={lat:+lat, lon:+lon, label: city || `${lat}, ${lon}`}; }
+  else if(city){ where=await geocode(city); }
+  else { where=await geocode('Stony Brook'); }
+  loc.textContent = where.label;
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${where.lat}&longitude=${where.lon}`
+            + `&current=temperature_2m,weather_code,is_day`
+            + `&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto`;
+  const r = await fetch(url); const data = await r.json();
+
+  const t = Math.round(data.current.temperature_2m);
+  const base = codeToGroup(data.current.weather_code);
+  const isDay = data.current.is_day === 1;
+  const kind = (base==='Clear') ? (isDay ? 'ClearDay' : 'ClearNight') : base + (isDay ? 'Day' : 'Night');
+
+  document.getElementById('temp').textContent = t + '°';
+  document.getElementById('desc').textContent = (kind==='ClearDay'?'Clear (Day)':kind==='ClearNight'?'Clear (Night)':base + (isDay?'':' (Night)'));
+
+  const img = new Image(); img.src = renderIcon(kind); img.style.imageRendering='pixelated';
+  const big=document.getElementById('bigIcon'); big.innerHTML=''; big.appendChild(img);
+
+  const grid=document.getElementById('grid'); grid.innerHTML='';
+  for(let i=0;i<3;i++){
+    const d = data.daily.time[i];
+    const hi = Math.round(data.daily.temperature_2m_max[i]);
+    const lo = Math.round(data.daily.temperature_2m_min[i]);
+    const g  = codeToGroup(data.daily.weather_code[i]) + 'Day';
+    const card=document.createElement('div'); card.className='day';
+    const day=document.createElement('div'); day.textContent=new Date(d).toLocaleDateString(undefined,{weekday:'short'}); card.appendChild(day);
+    const iconWrap=document.createElement('div'); iconWrap.className='tiny'; iconWrap.appendChild(tiny(g)); card.appendChild(iconWrap);
+    const hiEl=document.createElement('div'); hiEl.className='hi'; hiEl.textContent=hi+'°'; card.appendChild(hiEl);
+    const loEl=document.createElement('div'); loEl.className='lo'; loEl.textContent=lo+'°'; card.appendChild(loEl);
+    grid.appendChild(card);
+  }
+}
+load().catch(err=>{ loc.textContent='Weather'; temp.textContent='—'; desc.textContent=err.message||'Failed to load'; });
+</script>
