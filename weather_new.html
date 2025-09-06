@@ -1,0 +1,190 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pink Weather</title>
+<style>
+  :root{
+    --bg:#1a1325;        /* dark background (sunset) */
+    --card:#221127;      /* card */
+    --fg:#ffe7f3;        /* main text */
+    --muted:#f0a6c1;     /* secondary text */
+    --accent:#ff5fa2;    /* pink accent */
+    --chip:#2a1630;
+  }
+  body.sunrise{
+    --bg:#fff0f6;        /* light pink */
+    --card:#ffe3ef;
+    --fg:#5a1037;        /* plum text */
+    --muted:#b85a7e;
+    --accent:#ff4d8d;
+    --chip:#ffd9e7;
+  }
+  html,body{height:100%;margin:0}
+  body{display:grid;place-items:center;background:var(--bg);color:var(--fg);
+       font:600 16px/1.4 ui-sans-serif,system-ui,Segoe UI,Arial}
+  .widget{background:var(--card);border-radius:16px;box-shadow:0 10px 28px rgba(0,0,0,.35);
+          padding:18px 20px;min-width:290px;max-width:420px;width:92%}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  .date{font-weight:800}
+  .loc{color:var(--muted);font-weight:700}
+  .now{display:flex;align-items:center;gap:14px;margin:12px 0 6px}
+  .icon{width:72px;height:72px}
+  .temp{font-size:44px;letter-spacing:.02em}
+  .desc{color:var(--muted);margin-top:2px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+  .day{background:var(--chip);border-radius:12px;padding:10px;text-align:center}
+  .hi{font-size:18px} .lo{color:var(--muted);font-size:12px}
+  .tiny{width:28px;height:28px;margin:4px auto 2px}
+  /* cute toggle */
+  .toggle{position:relative;display:inline-block;width:44px;height:24px}
+  .toggle input{display:none}
+  .slider{position:absolute;cursor:pointer;inset:0;background:#3a2746;border-radius:999px;transition:.2s}
+  .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:var(--accent);
+    border-radius:50%;transition:.2s}
+  input:checked + .slider{background:#ffd7e6}
+  input:checked + .slider:before{transform:translateX(20px);background:#ff4d8d}
+  .row{display:flex;gap:12px;align-items:center}
+</style>
+
+<div class="widget">
+  <div class="top">
+    <div>
+      <div class="date" id="date">—</div>
+      <div class="loc" id="loc">Loading…</div>
+    </div>
+    <label class="toggle" title="Toggle light/dark">
+      <input id="theme" type="checkbox"><span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="now">
+    <div class="icon" id="bigIcon" aria-hidden="true"></div>
+    <div>
+      <div class="temp" id="temp">--°</div>
+      <div class="desc" id="desc">—</div>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+/* ===== Query options =====
+   ?city=Stony%20Brook  OR  ?lat=40.925&lon=-73.140
+   Optional: ?theme=sunrise  (default is sunset/dark)
+*/
+const qs=new URLSearchParams(location.search);
+const city=qs.get('city'); const lat=qs.get('lat'); const lon=qs.get('lon');
+const startTheme = (qs.get('theme')||'sunset').toLowerCase();
+if(startTheme==='sunrise') document.body.classList.add('sunrise');
+theme.checked = document.body.classList.contains('sunrise');
+theme.addEventListener('change',()=>document.body.classList.toggle('sunrise'));
+
+// pretty date
+function headerDate(d=new Date()){
+  return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});
+}
+date.textContent = headerDate();
+
+/* ===== Icons (inline SVG, no PNGs needed) ===== */
+function svg(str){ return 'data:image/svg+xml;utf8,' + encodeURIComponent(str); }
+const ICONS = {
+  Clear: svg(`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="32" cy="32" r="14" fill="url(#g)"/>
+    <defs><radialGradient id="g" cx="50%" cy="50%"><stop offset="0" stop-color="#ffd1e6"/><stop offset="1" stop-color="#ff5fa2"/></radialGradient></defs>
+  </svg>`),
+  Cloudy: svg(`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#ffd1e6"><ellipse cx="24" cy="36" rx="14" ry="9"/><ellipse cx="40" cy="36" rx="16" ry="10"/></g>
+  </svg>`),
+  Rain: svg(`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#ffd1e6"><ellipse cx="26" cy="30" rx="13" ry="8"/><ellipse cx="42" cy="30" rx="15" ry="9"/></g>
+    <g stroke="#ff5fa2" stroke-width="3" stroke-linecap="round">
+      <line x1="22" y1="44" x2="18" y2="52"/><line x1="32" y1="44" x2="28" y2="52"/><line x1="42" y1="44" x2="38" y2="52"/>
+    </g>
+  </svg>`),
+  Snow: svg(`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#ffd1e6"><ellipse cx="26" cy="30" rx="13" ry="8"/><ellipse cx="42" cy="30" rx="15" ry="9"/></g>
+    <g fill="#ff5fa2"><circle cx="22" cy="48" r="3"/><circle cx="32" cy="48" r="3"/><circle cx="42" cy="48" r="3"/></g>
+  </svg>`),
+  Thunder: svg(`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#ffd1e6"><ellipse cx="26" cy="28" rx="13" ry="8"/><ellipse cx="44" cy="30" rx="15" ry="9"/></g>
+    <polygon points="30,36 24,52 34,44 30,58 44,40 34,46 40,34" fill="#ff5fa2"/>
+  </svg>`),
+  Fog: svg(`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="#ff9ec3" stroke-width="3" stroke-linecap="round">
+      <line x1="10" y1="28" x2="54" y2="28"/><line x1="8" y1="36" x2="56" y2="36"/><line x1="12" y1="44" x2="52" y2="44"/>
+    </g>
+  </svg>`)
+};
+
+// tiny versions for the 3-day mini forecast:
+function tinyIcon(group){
+  const map={Clear:'☀️',Cloudy:'⛅',Rain:'🌧️',Snow:'❄️',Thunder:'⛈️',Fog:'🌫️'};
+  return map[group]||'…';
+}
+
+/* ===== Weather code → group text ===== */
+function codeToGroup(code){
+  if(code===0) return 'Clear';
+  if([1,2,3].includes(code)) return 'Cloudy';
+  if([45,48].includes(code)) return 'Fog';
+  if((code>=51 && code<=67) || (code>=80 && code<=82)) return 'Rain';
+  if((code>=71 && code<=77) || (code>=85 && code<=86)) return 'Snow';
+  if(code===95 || code===96 || code===99) return 'Thunder';
+  return 'Cloudy';
+}
+
+/* ===== Data loading ===== */
+async function geocode(name){
+  const url=`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`;
+  const r=await fetch(url); const j=await r.json();
+  if(!j.results || !j.results[0]) throw new Error('Place not found');
+  const g=j.results[0];
+  return {lat:g.latitude, lon:g.longitude, label:`${g.name}${g.admin1?', '+g.admin1:''}`};
+}
+
+async function load(){
+  let where={lat:null,lon:null,label:''};
+  if(lat && lon){ where={lat:+lat, lon:+lon, label: city || `${lat}, ${lon}`}; }
+  else if(city){ where=await geocode(city); }
+  else { where=await geocode('Stony Brook'); }   // default
+
+  loc.textContent = where.label;
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${where.lat}&longitude=${where.lon}` +
+    `&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto`;
+
+  const r = await fetch(url);
+  const data = await r.json();
+
+  const t = Math.round(data.current.temperature_2m);
+  const group = codeToGroup(data.current.weather_code);
+  temp.textContent = t + '°';
+  desc.textContent = group;
+
+  // big icon (SVG data URL)
+  const img = new Image(); img.className='icon'; img.src = ICONS[group] || ICONS.Cloudy;
+  bigIcon.innerHTML=''; bigIcon.appendChild(img);
+
+  // 3-day mini forecast
+  grid.innerHTML='';
+  for(let i=0;i<3;i++){
+    const d = data.daily.time[i];
+    const hi = Math.round(data.daily.temperature_2m_max[i]);
+    const lo = Math.round(data.daily.temperature_2m_min[i]);
+    const g = codeToGroup(data.daily.weather_code[i]);
+
+    const el = document.createElement('div'); el.className='day';
+    el.innerHTML = `
+      <div>${new Date(d).toLocaleDateString(undefined,{weekday:'short'})}</div>
+      <div class="tiny">${tinyIcon(g)}</div>
+      <div class="hi">${hi}°</div>
+      <div class="lo">${lo}°</div>`;
+    grid.appendChild(el);
+  }
+}
+
+load().catch(err=>{
+  loc.textContent='Weather'; temp.textContent='—'; desc.textContent=err.message||'Failed to load';
+});
+</script>
