@@ -1,0 +1,51 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Weather</title>
+<style>
+  :root{--bg:#0b0d10;--card:#12161c;--fg:#e7eef7;--muted:#9aa4b2}
+  html,body{height:100%;margin:0} body{display:grid;place-items:center;background:var(--bg);color:var(--fg);font:600 16px ui-sans-serif,system-ui}
+  .wrap{background:var(--card);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:18px 20px;min-width:280px}
+  .top{display:flex;justify-content:space-between;align-items:baseline}
+  .loc{font-weight:700} .desc{color:var(--muted);font-size:12px}
+  .temp{font-size:44px;margin:.4rem 0}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px}
+  .day{background:#1a2230;border-radius:12px;padding:10px;text-align:center}
+  .hi{font-size:18px} .lo{color:var(--muted);font-size:12px}
+</style>
+<div class="wrap">
+  <div class="top"><div class="loc" id="loc">Loading…</div><div class="desc" id="desc"></div></div>
+  <div class="temp" id="temp">--°</div>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+  const q=new URLSearchParams(location.search);
+  const city=q.get('city'); const lat=q.get('lat'); const lon=q.get('lon');
+  async function geocode(name){
+    const url=`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=en&format=json`;
+    const r=await fetch(url); const j=await r.json(); if(!j.results||!j.results[0]) throw new Error('not found');
+    const g=j.results[0]; return {lat:g.latitude, lon:g.longitude, label:`${g.name}${g.admin1?', '+g.admin1:''}`};
+  }
+  async function load(){
+    let where={lat:null,lon:null,label:''};
+    if(lat&&lon){ where={lat:+lat,lon:+lon,label:city||`${lat},${lon}`}; }
+    else if(city){ where=await geocode(city); }
+    else { where=await geocode('Stony Brook'); }  // default
+    loc.textContent=where.label;
+    const u=`https://api.open-meteo.com/v1/forecast?latitude=${where.lat}&longitude=${where.lon}`
+           +`&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto`;
+    const r=await fetch(u); const j=await r.json();
+    temp.textContent=Math.round(j.current.temperature_2m)+'°';
+    desc.textContent='Now';
+    grid.innerHTML='';
+    const days=j.daily.time.slice(0,3);
+    days.forEach((d,i)=>{
+      const hi=Math.round(j.daily.temperature_2m_max[i]);
+      const lo=Math.round(j.daily.temperature_2m_min[i]);
+      const el=document.createElement('div'); el.className='day';
+      el.innerHTML=`<div>${new Date(d).toLocaleDateString(undefined,{weekday:'short'})}</div>
+                    <div class="hi">${hi}°</div><div class="lo">${lo}°</div>`;
+      grid.appendChild(el);
+    });
+  }
+  load().catch(e=>{ loc.textContent='Weather'; temp.textContent='—'; desc.textContent=e.message; });
+</script>
